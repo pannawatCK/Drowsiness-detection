@@ -75,7 +75,17 @@ def on_connect():
 def on_disconnect():
     print("Client disconnected")
 
+def reSizeImage(image):
+    width, height = image.size
+    new_width = 500
+    new_height = int((new_width / width) * height)
+
+    # ปรับขนาด
+    resized_image = image.resize((new_width, new_height))
+    return resized_image
+
 def loadImage(image):
+    reSizeImage(image)
     global count, score, rpred, lpred, alarm_played, alarm_start_time
     rpred = [99]
     lpred = [99]
