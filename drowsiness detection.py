@@ -77,7 +77,7 @@ def on_disconnect():
 
 def reSizeImage(image):
     width, height = image.size
-    new_width = 500
+    new_width = 1000
     new_height = int((new_width / width) * height)
 
     # ปรับขนาด
