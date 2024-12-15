@@ -1,21 +1,22 @@
-import cv2, json
+import cv2
 import numpy as np
 from tensorflow.keras.models import load_model
 from pygame import mixer
-import time
 import base64
 from PIL import Image
-import io
 from flask import Flask
 from flask_socketio import SocketIO
 from io import BytesIO
 from PIL import Image
+import tensorflow as tf
 
 # Initializations
 mixer.init()
 sound = mixer.Sound('alarm.wav')
 
 # Load model and face cascade classifiers
+tf.config.threading.set_intra_op_parallelism_threads(4)  # ใช้ 4 threads
+tf.config.threading.set_inter_op_parallelism_threads(2)
 model = load_model('models/cnncat2.h5')
 face = cv2.CascadeClassifier(r'haar cascade files\haarcascade_frontalface_alt.xml')
 leye = cv2.CascadeClassifier(r'haar cascade files\haarcascade_lefteye_2splits.xml')
@@ -77,7 +78,7 @@ def on_disconnect():
 
 def reSizeImage(image):
     width, height = image.size
-    new_width = 1000
+    new_width = 640
     new_height = int((new_width / width) * height)
 
     # ปรับขนาด
@@ -85,12 +86,14 @@ def reSizeImage(image):
     return resized_image
 
 def loadImage(image):
-    reSizeImage(image)
+    width, height = image.size
+    new_width = 3000
+    new_height = int((new_width / width) * height)
     global count, score, rpred, lpred, alarm_played, alarm_start_time
     rpred = [99]
     lpred = [99]
     # แปลงภาพเป็น NumPy array
-    frame = np.array(image)
+    frame = np.array(image.resize((new_width, new_height))) 
     # ret, frame = cap.read()
     height, width = frame.shape[:2] 
 
@@ -113,7 +116,8 @@ def loadImage(image):
         r_eye = r_eye / 255
         r_eye = r_eye.reshape(24, 24, -1)
         r_eye = np.expand_dims(r_eye, axis=0)
-        rpred = model.predict_classes(r_eye)
+        rpred = model.predict(r_eye)
+        rpred = np.argmax(rpred, axis=1)
         if rpred[0] == 1:
             lbl = 'Open'
         if rpred[0] == 0:
@@ -128,7 +132,8 @@ def loadImage(image):
         l_eye = l_eye / 255
         l_eye = l_eye.reshape(24, 24, -1)
         l_eye = np.expand_dims(l_eye, axis=0)
-        lpred = model.predict_classes(l_eye)
+        lpred = model.predict(l_eye)
+        lpred = np.argmax(lpred, axis=1)
         if lpred[0] == 1:
             lbl = 'Open'   
         if lpred[0] == 0:
@@ -139,58 +144,27 @@ def loadImage(image):
 
     # ตั้งคะแนนเป็น 0 เมื่อดวงตาเปิด
     if rpred[0] == 0 and lpred[0] == 0:
+        print(" --- Closed --- ")
         score += 1
         cv2.putText(frame, "Closed", (10, height - 20), font, 1, (255, 255, 255), 1, cv2.LINE_AA)
     elif rpred[0] == 1 or lpred[0] == 1:  # หากดวงตาเปิด
+        print(" --- Open --- ")
         score = 0  # ตั้งคะแนนเป็น 0
         cv2.putText(frame, "Open", (10, height - 20), font, 1, (255, 255, 255), 1, cv2.LINE_AA)
+    elif rpred[0] == 0 or lpred[0] == 0:
+        print(" --- Closed Some Eye --- ")
+    else:
+        print(" --- Not Detected --- ")
 
     # กำหนดเงื่อนไขให้คะแนนไม่ติดลบ
     if score < 0:
         score = 0
 
-    cv2.putText(frame, 'Score:' + str(score), (100, height - 20), font, 1, (255, 255, 255), 1, cv2.LINE_AA)
-
-    # เมื่อคะแนนเกิน 15
-    if score > 15:
-        if not alarm_played:  # ถ้ายังไม่เคยเล่นเสียง
-            # หากดวงตายังปิด
-            if rpred[0] == 0 and lpred[0] == 0:
-                # เล่นเสียงต่อเนื่อง
-                try:
-                    sound.play()
-                    alarm_played = True
-                    alarm_start_time = time.time()  # บันทึกเวลาเริ่มเล่นเสียง
-                except:
-                    pass
-            else:  # หากดวงตาเปิดแล้ว
-                # เล่นเสียงแค่ 1 วินาที
-                try:
-                    sound.play()
-                    alarm_played = True
-                    alarm_start_time = time.time()  # บันทึกเวลาเริ่มเล่นเสียง
-                except:
-                    pass
-
-        # ตรวจสอบเวลาที่ผ่านไปหลังจากเสียงเริ่มเล่น
-        if alarm_played and time.time() - alarm_start_time >= 1:  # หากผ่านไป 1 วินาที
-            sound.stop()  # หยุดเสียง
-            alarm_played = False  # รีเซ็ตสถานะการเล่นเสียง
-
-        if thicc < 16:
-            thicc = thicc + 2
-        else:
-            thicc = thicc - 2
-            if thicc < 2:
-                thicc = 2
-        cv2.rectangle(frame, (0, 0), (width, height), (0, 0, 255), thicc)
     return score
 
 if __name__ == "__main__":
-    # image = Image.open("output2.jpg")
-    # if image == None:
-    #     result = {"message": f"Error: image not found."}
-    # for i in range(0, 9):
-    #     loadImage(image)
+    # image = Image.open("output.jpg")
+    # loadImage(image)
     # ใช้ Eventlet เพื่อรองรับ WebSocket
-    socketio.run(app, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=5000)
+
